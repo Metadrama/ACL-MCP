@@ -58,6 +58,10 @@ export class LRUCache<T> {
         return this.cache.size;
     }
 
+    getMaxSize(): number {
+        return this.maxSize;
+    }
+
     private evictOldest(): void {
         // Remove 10% of oldest entries
         const entriesToRemove = Math.max(1, Math.floor(this.maxSize * 0.1));
@@ -161,7 +165,7 @@ export class SkeletonCache<T> {
     stats(): { size: number; maxSize: number } {
         return {
             size: this.memoryCache.size(),
-            maxSize: 5000, // TODO: expose from LRUCache
+            maxSize: this.memoryCache.getMaxSize(),
         };
     }
 
