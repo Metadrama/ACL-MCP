@@ -23,8 +23,13 @@ if (matches.length > 0) {
     const classBody = content.substring(classStartIndex, classEndIndex);
     console.log('Class body length:', classBody.length);
 
-    const methodRegex = /^\s*(public|private|protected)?\s*(static)?\s*(async)?\s*(\w+)\s*\([^)]*\)\s*(?::\s*[^{]+)?\s*\{/gm;
+    const methodRegex = /^\s*(?:(public|private|protected)\s+)?(?:static\s+)?(?:async\s+)?(\w+)\s*\([^)]*\)\s*(?::\s*[^{;]+)?\s*\{/gm;
     const methodMatches = [...classBody.matchAll(methodRegex)];
     console.log('Method matches found:', methodMatches.length);
-    methodMatches.forEach(m => console.log('Method:', m[4]));
+    methodMatches.forEach(m => console.log('Method:', m[2]));
+
+    const propertyRegex = /^\s*(?!(?:const|let|var|return|if|for|while|switch|case|break|continue|throw|yield|await|export|import)\b)(?:(?:public|private|protected|readonly|static)\s+)*(\w+)\s*[!?]?\s*(?::\s*[^=;]+)?(?:\s*=\s*[^;]+)?;/gm;
+    const propMatches = [...classBody.matchAll(propertyRegex)];
+    console.log('Property matches found:', propMatches.length);
+    propMatches.forEach(m => console.log('Prop:', m[1]));
 }

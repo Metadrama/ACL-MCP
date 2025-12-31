@@ -214,37 +214,56 @@ class AclServer {
      * Initialize with a specific workspace path
      */
     async initWithWorkspace(workspacePath: string): Promise<void> {
-        if (this.initialized) return;
+        // If changing workspace, clean up old resources
+        if (this.initialized && this.workspacePath !== workspacePath) {
+            await this.reset();
+        } else if (this.initialized && this.workspacePath === workspacePath) {
+            return;
+        }
 
         this.workspacePath = workspacePath;
 
-        // Load configuration
-        this.config = loadConfig(workspacePath);
+        const { appendFileSync } = await import('fs');
+        try {
+            // Load configuration
+            this.config = loadConfig(workspacePath);
 
-        // Initialize database
-        const dbPath = resolve(workspacePath, '.acl', 'context.db');
-        this.database = new AclDatabase(dbPath);
-        await this.database.init();
+            // Initialize database
+            const dbPath = resolve(workspacePath, '.acl', 'context.db');
+            this.database = new AclDatabase(dbPath);
+            await this.database.init();
 
-        // Initialize anchor
-        this.anchor = new Anchor(workspacePath);
-        await this.anchor.init();
+            // Initialize anchor
+            this.anchor = new Anchor(workspacePath);
+            await this.anchor.init();
 
-        // Initialize modules
-        this.cartographer = new Cartographer({
-            config: this.config,
-            database: this.database,
-        });
-        this.shadow = new Shadow({
-            config: this.config,
-            database: this.database,
-            cartographer: this.cartographer,
-        });
+            // Initialize modules
+            this.cartographer = new Cartographer({
+                config: this.config,
+                database: this.database,
+            });
+            this.shadow = new Shadow({
+                config: this.config,
+                database: this.database,
+                cartographer: this.cartographer,
+            });
 
-        // Start Shadow watcher
-        this.shadow.start();
+            // Start Shadow watcher
+            this.shadow.start();
 
-        this.initialized = true;
+            this.initialized = true;
+            appendFileSync('C:/Users/Local User/ACL-MCP/debug.log', `[${new Date().toISOString()}] Initialized workspace: ${workspacePath}\n`);
+        } catch (error) {
+            appendFileSync('C:/Users/Local User/ACL-MCP/debug.log', `[${new Date().toISOString()}] Error initializing workspace: ${error}\n`);
+            throw error;
+        }
+    }
+
+    private async reset(): Promise<void> {
+        if (this.shadow) await this.shadow.stop();
+        if (this.anchor) this.anchor.close();
+        if (this.database) this.database.close();
+        this.initialized = false;
     }
 
     private setupHandlers(): void {
@@ -259,43 +278,46 @@ class AclServer {
 
             try {
                 // Smart workspace detection from first absolute path
-                if (!this.initialized) {
-                    let detectedWorkspace = this.workspacePath;
+                let detectedWorkspace = this.workspacePath;
 
-                    // Try to extract workspace from the path argument
-                    const pathArg = (args as any)?.path || (args as any)?.paths?.[0];
-                    if (pathArg && isAbsolute(pathArg)) {
-                        // Heuristic: find common project markers
-                        const markers = ['package.json', 'tsconfig.json', 'pyproject.toml', 'go.mod', 'Cargo.toml', '.git'];
-                        let checkPath = pathArg;
+                // Try to extract workspace from the path argument
+                const pathArg = (args as any)?.path || (args as any)?.paths?.[0];
+                if (pathArg && isAbsolute(pathArg)) {
+                    // Heuristic: find common project markers
+                    const markers = ['package.json', 'tsconfig.json', 'pyproject.toml', 'go.mod', 'Cargo.toml', '.git'];
+                    let checkPath = pathArg;
 
-                        while (checkPath && checkPath !== resolve(checkPath, '..')) {
-                            const { dirname } = await import('path');
-                            const parentDir = dirname(checkPath);
+                    // Limit traversal to avoid infinite loops or going too high
+                    let depth = 0;
+                    while (checkPath && checkPath !== resolve(checkPath, '..') && depth < 10) {
+                        const { dirname } = await import('path');
+                        const parentDir = dirname(checkPath);
 
-                            for (const marker of markers) {
-                                const markerPath = resolve(parentDir, marker);
-                                if (existsSync(markerPath)) {
-                                    detectedWorkspace = parentDir;
-                                    break;
-                                }
-                            }
-
-                            if (detectedWorkspace !== this.workspacePath) break;
-                            checkPath = parentDir;
-                        }
-
-                        // Fallback: use parent of first path if it looks like a src file
-                        if (detectedWorkspace === this.workspacePath && pathArg.includes('src')) {
-                            const srcIndex = pathArg.indexOf('src');
-                            if (srcIndex > 0) {
-                                detectedWorkspace = pathArg.substring(0, srcIndex - 1);
+                        for (const marker of markers) {
+                            const markerPath = resolve(parentDir, marker);
+                            if (existsSync(markerPath)) {
+                                detectedWorkspace = parentDir;
+                                break;
                             }
                         }
+
+                        if (detectedWorkspace !== this.workspacePath) break;
+                        checkPath = parentDir;
+                        depth++;
                     }
-                    if (detectedWorkspace !== this.workspacePath) {
-                        this.workspacePath = detectedWorkspace;
+
+                    // Fallback: use parent of first path if it looks like a src file
+                    if (detectedWorkspace === this.workspacePath && pathArg.includes('src')) {
+                        const srcIndex = pathArg.indexOf('src');
+                        if (srcIndex > 0) {
+                            detectedWorkspace = pathArg.substring(0, srcIndex - 1);
+                        }
                     }
+                }
+
+                if (detectedWorkspace !== this.workspacePath) {
+                    await this.initWithWorkspace(detectedWorkspace);
+                } else if (!this.initialized) {
                     await this.initWithWorkspace(this.workspacePath);
                 }
 
@@ -634,6 +656,9 @@ class AclServer {
     // ─────────────────────────────────────────────────────────────
 
     async start(): Promise<void> {
+        // Initialize with default workspace immediately
+        await this.initWithWorkspace(this.workspacePath);
+
         // Connect to stdio transport
         const transport = new StdioServerTransport();
         await this.server.connect(transport);

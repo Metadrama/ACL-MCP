@@ -47,9 +47,13 @@ export class Shadow {
     /**
      * Start the Shadow (file watching)
      */
-    start(): void {
+    async start(): Promise<void> {
         this.watcher.start();
-        // Logging disabled for MCP compatibility
+
+        // perform initial scan in background
+        this.initialScan().catch(err => {
+            // Logging disabled for MCP
+        });
     }
 
     /**
@@ -58,7 +62,62 @@ export class Shadow {
     async stop(): Promise<void> {
         await this.watcher.stop();
         this.lastContext = null;
-        // Logging disabled for MCP compatibility
+    }
+
+    /**
+     * Perform an initial scan of the workspace to populate the context database
+     */
+    private async initialScan(): Promise<void> {
+        const { appendFileSync } = await import('fs');
+        const logPath = 'C:/Users/Local User/ACL-MCP/debug.log';
+
+        try {
+            appendFileSync(logPath, `[Shadow] Starting initial scan of ${this.config.workspacePath}\n`);
+
+            // Map the entire workspace (depth 10 should cover most projects)
+            const map = this.cartographer.mapDirectory('.', 10);
+
+            appendFileSync(logPath, `[Shadow] Found ${map.files.length} files to scan\n`);
+
+            // Flatten file list
+            const filesToProcess: string[] = [];
+            const processDir = (dirMap: any) => { // using any because DirectoryMap type is in cartographer
+                if (dirMap.files) {
+                    for (const f of dirMap.files) {
+                        filesToProcess.push(f.path);
+                    }
+                }
+                // mapDirectory returns a flat list of files in the current dir, 
+                // but it recurses? 
+                // Wait, mapDirectory output in Cartographer.ts structure:
+                // It walks recursively but puts everything into one result structure?
+                // Checking Cartographer.walkDirectory:
+                // It puts files in result.files.
+                // But it recurses for subdirectories.
+                // actually mapDirectory uses walkDirectory which populates 'result' passed by reference.
+                // So 'result.files' will contain ALL files found if mapped recursively?
+                // Reviewing Cartographer.ts again:
+                // walkDirectory: 
+                //   if file: result.files.push(...)
+                //   if dir: recurse
+                // Yes, 'result' accumulates ALL files.
+            };
+
+            // Actually Cartographer.mapDirectory returns a DirectoryMap which contains 'files' array.
+            // And walkDirectory appends to this single 'result' object.
+            // So map.files contains ALL files found during the walk.
+
+            for (const file of map.files) {
+                // Queue for indexing (lazy)
+                // We use getSkeleton to force parsing and caching if not exists
+                const skel = await this.cartographer.getSkeleton(file.path);
+                // appendFileSync(logPath, `[Shadow] Scanned ${file.relativePath}: ${!!skel}\n`);
+            }
+
+            appendFileSync(logPath, `[Shadow] Initial scan complete\n`);
+        } catch (error: any) {
+            appendFileSync(logPath, `[Shadow] Scan error: ${error.message}\n`);
+        }
     }
 
     /**
