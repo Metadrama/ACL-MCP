@@ -168,6 +168,10 @@ const TOOLS: Tool[] = [
     },
 ];
 
+function normalizePath(p: string): string {
+    return resolve(p).replace(/\\/g, '/');
+}
+
 // ─────────────────────────────────────────────────────────────
 // ACL Server Class
 // ─────────────────────────────────────────────────────────────
@@ -185,11 +189,16 @@ class AclServer {
     constructor(workspacePath: string) {
         this.workspacePath = workspacePath;
 
+        // Force fallback if unexpanded variable remains
+        if (!this.workspacePath || this.workspacePath.includes('${workspaceFolder}')) {
+            this.workspacePath = process.cwd();
+        }
+
         // Create MCP server with roots capability to receive workspace from client
         this.server = new Server(
             {
                 name: 'acl-mcp',
-                version: '0.1.0',
+                version: '0.1.1',
             },
             {
                 capabilities: {
@@ -524,7 +533,7 @@ class AclServer {
                         workspace: this.workspacePath,
                         server: {
                             name: 'acl-mcp',
-                            version: '0.1.0',
+                            version: '0.1.1',
                         },
                         cache: cartographerStats,
                         shadow: {
@@ -598,10 +607,17 @@ class AclServer {
 
 async function main() {
     // Get workspace from environment, or use cwd as fallback
-    const workspacePath =
+    let workspacePath =
         process.env.ACL_WORKSPACE_PATH ||
-        process.env.WORKSPACE_PATH ||
-        process.cwd();
+        process.env.WORKSPACE_PATH;
+
+    // Handle unexpanded variable from config
+    if (!workspacePath || workspacePath.includes('${workspaceFolder}')) {
+        workspacePath = process.cwd();
+    }
+
+    const { appendFileSync } = await import('fs');
+    appendFileSync('C:/Users/Local User/ACL-MCP/debug.log', `[${new Date().toISOString()}] Workspace detected: ${workspacePath}\n`);
 
     const server = new AclServer(workspacePath);
 

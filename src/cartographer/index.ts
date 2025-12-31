@@ -345,23 +345,37 @@ export class Cartographer {
         const dir = dirname(fromPath);
         const extensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs'];
 
-        // Try exact path first
-        const exactPath = resolve(dir, importSource);
-        if (existsSync(exactPath)) {
-            return exactPath;
+        // Normalize import source for ESM (strip .js/.jsx if they refer to .ts/.tsx files)
+        let normalizedSource = importSource;
+        if (importSource.endsWith('.js')) {
+            normalizedSource = importSource.slice(0, -3);
+        } else if (importSource.endsWith('.jsx')) {
+            normalizedSource = importSource.slice(0, -4);
         }
 
-        // Try with extensions
-        for (const ext of extensions) {
-            const withExt = exactPath + ext;
-            if (existsSync(withExt)) {
-                return withExt;
+        // Try exact paths
+        const searchPaths = [
+            resolve(dir, importSource),
+            resolve(dir, normalizedSource)
+        ];
+
+        for (const exactPath of searchPaths) {
+            if (existsSync(exactPath) && statSync(exactPath).isFile()) {
+                return exactPath;
             }
 
-            // Try /index.{ext}
-            const indexPath = join(exactPath, `index${ext}`);
-            if (existsSync(indexPath)) {
-                return indexPath;
+            // Try with extensions
+            for (const ext of extensions) {
+                const withExt = exactPath + ext;
+                if (existsSync(withExt) && statSync(withExt).isFile()) {
+                    return withExt;
+                }
+
+                // Try /index.{ext}
+                const indexPath = join(exactPath, `index${ext}`);
+                if (existsSync(indexPath) && statSync(indexPath).isFile()) {
+                    return indexPath;
+                }
             }
         }
 
