@@ -1,0 +1,40 @@
+{
+    "name": "acl-mcp",
+    "version": "0.1.0",
+    "description": "Agent Context Lifecycle MCP - Persistent context management for AI coding agents",
+    "type": "module",
+    "main": "dist/index.js",
+    "scripts": {
+        "dev": "tsx watch src/index.ts",
+        "build": "tsc",
+        "start": "node dist/index.js",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:integration": "vitest run --config vitest.integration.config.ts"
+    },
+    "keywords": [
+        "mcp",
+        "context",
+        "ai",
+        "coding-assistant"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "@anthropic-ai/sdk": "^0.39.0",
+        "@modelcontextprotocol/sdk": "^1.5.0",
+        "chokidar": "^4.0.3",
+        "sql.js": "^1.11.0",
+        "zod": "^3.24.1"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.5",
+        "@types/sql.js": "^1.4.9",
+        "tsx": "^4.19.2",
+        "typescript": "^5.7.2",
+        "vitest": "^2.1.8"
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    }
+}
