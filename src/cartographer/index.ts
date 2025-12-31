@@ -347,7 +347,7 @@ export class Cartographer {
         importSource: string
     ): string | null {
         const dir = dirname(fromPath);
-        const extensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs'];
+        const extensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.php'];
 
         // Normalize import source for ESM (strip .js/.jsx if they refer to .ts/.tsx files)
         let normalizedSource = importSource;

@@ -60,6 +60,7 @@ export class AclDatabase {
     private db: SqlJsDatabase | null = null;
     private dbPath: string;
     private initialized = false;
+    private saveTimeout: NodeJS.Timeout | null = null;
 
     constructor(dbPath: string) {
         this.dbPath = dbPath;
@@ -171,10 +172,23 @@ export class AclDatabase {
     }
 
     private save(): void {
+        if (this.saveTimeout) {
+            clearTimeout(this.saveTimeout);
+            this.saveTimeout = null;
+        }
+
         const db = this.ensureDb();
         const data = db.export();
         const buffer = Buffer.from(data);
         writeFileSync(this.dbPath, buffer);
+    }
+
+    private scheduleSave(): void {
+        if (this.saveTimeout) return;
+
+        this.saveTimeout = setTimeout(() => {
+            this.save();
+        }, 2000); // Save after 2 seconds of inactivity
     }
 
     private queryOne<T>(sql: string, params: (string | number | null)[] = []): T | undefined {
@@ -219,7 +233,7 @@ export class AclDatabase {
     private run(sql: string, params: (string | number | null)[] = []): void {
         const db = this.ensureDb();
         db.run(sql, params as any);
-        this.save();
+        this.scheduleSave();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -389,7 +403,7 @@ export class AclDatabase {
 
     close(): void {
         if (this.db) {
-            this.save();
+            this.save(); // Force save immediately
             this.db.close();
             this.db = null;
         }
