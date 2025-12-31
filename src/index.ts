@@ -166,6 +166,20 @@ const TOOLS: Tool[] = [
             properties: {},
         },
     },
+    {
+        name: 'acl_set_active_file',
+        description: 'Notify the server that a file is currently active (being edited). This triggers proactive context preparation.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                path: {
+                    type: 'string',
+                    description: 'Path of the active file',
+                }
+            },
+            required: ['path'],
+        },
+    }
 ];
 
 function normalizePath(p: string): string {
@@ -252,9 +266,15 @@ class AclServer {
             this.shadow.start();
 
             this.initialized = true;
-            appendFileSync('C:/Users/Local User/ACL-MCP/debug.log', `[${new Date().toISOString()}] Initialized workspace: ${workspacePath}\n`);
+            const logPath = resolve(workspacePath, '.acl', 'debug.log');
+            if (existsSync(dirname(logPath))) {
+               appendFileSync(logPath, `[${new Date().toISOString()}] Initialized workspace: ${workspacePath}\n`);
+            }
         } catch (error) {
-            appendFileSync('C:/Users/Local User/ACL-MCP/debug.log', `[${new Date().toISOString()}] Error initializing workspace: ${error}\n`);
+            const logPath = resolve(workspacePath, '.acl', 'debug.log');
+            if (existsSync(dirname(logPath))) {
+                appendFileSync(logPath, `[${new Date().toISOString()}] Error initializing workspace: ${error}\n`);
+            }
             throw error;
         }
     }
@@ -347,6 +367,9 @@ class AclServer {
                     case 'acl_get_stats':
                         return await this.handleGetStats();
 
+                    case 'acl_set_active_file':
+                        return await this.handleSetActiveFile(args as { path: string });
+
                     default:
                         throw new Error(`Unknown tool: ${name}`);
                 }
@@ -392,16 +415,6 @@ class AclServer {
                     isError: true,
                 };
             }
-
-            // Debug: Write parse results to a file
-            const { writeFileSync } = await import('fs');
-            const debugInfo = {
-                detectedWorkspace: this.workspacePath,
-                pathUsed: absolutePath,
-                classesFound: skeleton.classes.length,
-                classes: skeleton.classes.map(c => ({ name: c.name, methods: c.methods.length }))
-            };
-            writeFileSync('c:/Users/Local User/ACL-MCP/parse_debug.json', JSON.stringify(debugInfo, null, 2));
 
             return {
                 content: [
@@ -613,6 +626,30 @@ class AclServer {
         };
     }
 
+    private async handleSetActiveFile(args: { path: string }) {
+        const { path } = args;
+
+        const absolutePath = isAbsolute(path)
+            ? path
+            : resolve(this.config.workspacePath, path);
+
+        // Trigger proactive context preparation
+        const context = await this.shadow.prepareContext(absolutePath);
+
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: JSON.stringify({
+                        active: true,
+                        path: absolutePath,
+                        relatedFilesFound: context.relatedFiles.length
+                    }, null, 2)
+                }
+            ]
+        };
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────
@@ -686,9 +723,6 @@ async function main() {
     if (!workspacePath || workspacePath.includes('${workspaceFolder}')) {
         workspacePath = process.cwd();
     }
-
-    const { appendFileSync } = await import('fs');
-    appendFileSync('C:/Users/Local User/ACL-MCP/debug.log', `[${new Date().toISOString()}] Workspace detected: ${workspacePath}\n`);
 
     const server = new AclServer(workspacePath);
 

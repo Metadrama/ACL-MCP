@@ -76,6 +76,7 @@ const EXTENSION_TO_LANGUAGE: Record<string, string> = {
     '.py': 'python',
     '.go': 'go',
     '.rs': 'rust',
+    '.php': 'php',
 };
 
 /**
@@ -135,9 +136,147 @@ export async function parseFile(
             return parseGo(filePath, content);
         case 'rust':
             return parseRust(filePath, content);
+        case 'php':
+            return parsePhp(filePath, content);
         default:
             return parseGeneric(filePath, content, language);
     }
+}
+
+/**
+ * PHP regex parser
+ */
+function parsePhp(filePath: string, content: string): FileSkeleton {
+    const skeleton: FileSkeleton = {
+        filePath,
+        language: 'php',
+        exports: [],
+        imports: [],
+        classes: [],
+        functions: [],
+        parseErrors: [],
+    };
+
+    let match;
+
+    // Namespace
+    const namespaceRegex = /^namespace\s+([^;]+);/m;
+    const namespaceMatch = content.match(namespaceRegex);
+    const namespace = namespaceMatch ? namespaceMatch[1] : '';
+
+    // Imports (use statements)
+    const useRegex = /^use\s+(?:function\s+|const\s+)?([^;]+);/gm;
+    while ((match = useRegex.exec(content)) !== null) {
+        const lineNum = content.substring(0, match.index).split('\n').length;
+        const fullUse = match[1].trim();
+
+        // Handle aliases "as"
+        const parts = fullUse.split(/\s+as\s+/i);
+        const source = parts[0];
+
+        skeleton.imports.push({
+            source,
+            specifiers: parts[1] ? [parts[1]] : [],
+            isTypeOnly: false,
+            isDynamic: false,
+            line: lineNum,
+        });
+    }
+
+    // Classes / Traits / Interfaces
+    const classRegex = /^(?:abstract\s+)?(?:final\s+)?(class|interface|trait)\s+(\w+)(?:\s+extends\s+([^{]+))?(?:\s+implements\s+([^{]+))?/gm;
+    while ((match = classRegex.exec(content)) !== null) {
+        const lineNum = content.substring(0, match.index).split('\n').length;
+        const name = match[2];
+        const extendsClass = match[3] ? match[3].trim() : undefined;
+        const implementsInterfaces = match[4] ? match[4].split(',').map(s => s.trim()) : undefined;
+
+        // Extract class body to find methods
+        const classStartIndex = match.index! + match[0].length;
+        let braceCount = 0;
+        let classEndIndex = classStartIndex;
+
+        // Find opening brace
+        let i = classStartIndex;
+        while (i < content.length && content[i] !== '{') i++;
+        if (i < content.length) {
+            braceCount = 1;
+            i++;
+            for (; i < content.length && braceCount > 0; i++) {
+                if (content[i] === '{') braceCount++;
+                else if (content[i] === '}') braceCount--;
+            }
+            classEndIndex = i;
+        }
+
+        const classBody = content.substring(classStartIndex, classEndIndex);
+        const methods: MethodSkeleton[] = [];
+        const properties: string[] = [];
+
+        // Methods
+        const methodRegex = /^\s*(?:(public|private|protected)\s+)?(?:static\s+)?function\s+(\w+)\s*\(/gm;
+        let methodMatch;
+        while ((methodMatch = methodRegex.exec(classBody)) !== null) {
+            const methodLineInBody = classBody.substring(0, methodMatch.index).split('\n').length;
+            methods.push({
+                name: methodMatch[2],
+                line: lineNum + methodLineInBody,
+                visibility: (methodMatch[1] as any) || 'public',
+                isStatic: classBody.substring(methodMatch.index - 20, methodMatch.index).includes('static'),
+                isAsync: false, // PHP doesn't use async keyword in the same way as JS/Rust
+                parameters: [],
+            });
+        }
+
+        // Properties
+        const propRegex = /^\s*(?:(public|private|protected)\s+)(?:static\s+)?(?:\w+\s+)?\$(\w+)/gm;
+        let propMatch;
+        while ((propMatch = propRegex.exec(classBody)) !== null) {
+            properties.push(propMatch[2]);
+        }
+
+        skeleton.classes.push({
+            name,
+            line: lineNum,
+            methods,
+            properties,
+            extends: extendsClass,
+            implements: implementsInterfaces,
+        });
+
+        // Everything in PHP at root level is somewhat "exported" if the file is included,
+        // but typically public classes are the main exports.
+        skeleton.exports.push({
+            name,
+            kind: match[1] === 'interface' ? 'interface' : 'class',
+            line: lineNum,
+            isDefault: false,
+        });
+    }
+
+    // Standalone functions
+    const funcRegex = /^function\s+(\w+)\s*\(/gm;
+    while ((match = funcRegex.exec(content)) !== null) {
+        const lineNum = content.substring(0, match.index).split('\n').length;
+        const name = match[1];
+
+        skeleton.functions.push({
+            name,
+            line: lineNum,
+            isAsync: false,
+            isExported: true, // Global function
+            parameters: [],
+        });
+
+        skeleton.exports.push({
+            name,
+            kind: 'function',
+            line: lineNum,
+            isDefault: false,
+        });
+    }
+
+    return skeleton;
 }
 
 /**
