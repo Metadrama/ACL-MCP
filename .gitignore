@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+#  - removed to allow tool access
 
 # IDE
 .idea/

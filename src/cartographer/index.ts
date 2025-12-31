@@ -49,7 +49,11 @@ export class Cartographer {
      * Get skeleton for a single file (lazy parsing)
      */
     async getSkeleton(filePath: string): Promise<FileSkeleton | null> {
-        const absolutePath = resolve(this.config.workspacePath, filePath);
+        // Handle both absolute and relative paths
+        const { isAbsolute } = await import('path');
+        const absolutePath = isAbsolute(filePath)
+            ? filePath
+            : resolve(this.config.workspacePath, filePath);
 
         // Check memory cache first
         const cached = this.cache.getIfValid(absolutePath);

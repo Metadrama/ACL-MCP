@@ -198,7 +198,7 @@ class AclServer {
         this.server = new Server(
             {
                 name: 'acl-mcp',
-                version: '0.1.2',
+                version: '0.1.3',
             },
             {
                 capabilities: {
@@ -293,8 +293,10 @@ class AclServer {
                             }
                         }
                     }
-
-                    await this.initWithWorkspace(detectedWorkspace);
+                    if (detectedWorkspace !== this.workspacePath) {
+                        this.workspacePath = detectedWorkspace;
+                    }
+                    await this.initWithWorkspace(this.workspacePath);
                 }
 
                 switch (name) {
@@ -361,13 +363,23 @@ class AclServer {
         }
 
         if (stat.isFile()) {
-            // Get file skeleton
             const skeleton = await this.cartographer.getSkeleton(absolutePath);
             if (!skeleton) {
                 return {
-                    content: [{ type: 'text', text: `Could not parse file: ${path}` }],
+                    content: [{ type: 'text', text: `File not found: ${path}` }],
+                    isError: true,
                 };
             }
+
+            // Debug: Write parse results to a file
+            const { writeFileSync } = await import('fs');
+            const debugInfo = {
+                detectedWorkspace: this.workspacePath,
+                pathUsed: absolutePath,
+                classesFound: skeleton.classes.length,
+                classes: skeleton.classes.map(c => ({ name: c.name, methods: c.methods.length }))
+            };
+            writeFileSync('c:/Users/Local User/ACL-MCP/parse_debug.json', JSON.stringify(debugInfo, null, 2));
 
             return {
                 content: [
@@ -567,7 +579,7 @@ class AclServer {
                         workspace: this.workspacePath,
                         server: {
                             name: 'acl-mcp',
-                            version: '0.1.2',
+                            version: '0.1.3',
                         },
                         cache: cartographerStats,
                         shadow: {

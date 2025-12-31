@@ -296,35 +296,35 @@ function parseTypeScript(
 
         const methods: MethodSkeleton[] = [];
         const properties: string[] = [];
+        const keywords = new Set(['if', 'for', 'while', 'switch', 'catch', 'constructor', 'return', 'get', 'set', 'static', 'async', 'public', 'private', 'protected']);
 
         // Extract methods from class body
-        const methodRegex = /^\s*(public|private|protected)?\s*(static)?\s*(async)?\s*(\w+)\s*\([^)]*\)\s*(?::\s*[^{]+)?\s*\{/gm;
+        // Removed ^ anchor as classBody is a substring and we want to be flexible
+        const methodRegex = /\s*(public|private|protected)?\s*(static)?\s*(async)?\s*(\w+)\s*\([^)]*\)\s*(?::\s*[^{;]+)?\s*\{/g;
         let methodMatch;
 
         while ((methodMatch = methodRegex.exec(classBody)) !== null) {
             const methodName = methodMatch[4];
-            // Skip constructor for now, it's a special case
-            if (methodName === 'constructor') continue;
-
-            const methodLineInBody = classBody.substring(0, methodMatch.index).split('\n').length;
-
-            methods.push({
-                name: methodName,
-                line: classStartLine + methodLineInBody,
-                visibility: (methodMatch[1] as 'public' | 'private' | 'protected') || 'public',
-                isStatic: !!methodMatch[2],
-                isAsync: !!methodMatch[3],
-                parameters: [],
-            });
+            if (methodName && !keywords.has(methodName)) {
+                const methodLineInBody = classBody.substring(0, methodMatch.index).split('\n').length;
+                methods.push({
+                    name: methodName,
+                    line: classStartLine + methodLineInBody,
+                    visibility: (methodMatch[1] as 'public' | 'private' | 'protected') || 'public',
+                    isStatic: !!methodMatch[2],
+                    isAsync: !!methodMatch[3],
+                    parameters: [],
+                });
+            }
         }
 
         // Extract properties from class body
-        const propertyRegex = /^\s*(public|private|protected)?\s*(static)?\s*(readonly)?\s*(\w+)\s*[!?]?\s*(?::\s*[^=;]+)?(?:\s*=\s*[^;]+)?;/gm;
+        const propertyRegex = /\s*(public|private|protected)?\s*(static)?\s*(readonly)?\s*(\w+)\s*[!?]?\s*(?::\s*[^=;]+)?(?:\s*=\s*[^;]+)?;/g;
         let propMatch;
 
         while ((propMatch = propertyRegex.exec(classBody)) !== null) {
             const propName = propMatch[4];
-            if (propName && !['constructor', 'return', 'if', 'else', 'const', 'let', 'var'].includes(propName)) {
+            if (propName && !keywords.has(propName)) {
                 properties.push(propName);
             }
         }

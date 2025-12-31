@@ -1,0 +1,11 @@
+{
+  "detectedWorkspace": "C:\\Users\\Local User\\AppData\\Local\\Programs\\Antigravity",
+  "pathUsed": "c:\\Users\\Local User\\ACL-MCP\\src\\index.ts",
+  "classesFound": 1,
+  "classes": [
+    {
+      "name": "AclServer",
+      "methods": 12
+    }
+  ]
+}
