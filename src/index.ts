@@ -198,7 +198,7 @@ class AclServer {
         this.server = new Server(
             {
                 name: 'acl-mcp',
-                version: '0.1.1',
+                version: '0.1.2',
             },
             {
                 capabilities: {
@@ -258,9 +258,43 @@ class AclServer {
             const { name, arguments: args } = request.params;
 
             try {
-                // Lazy initialization on first tool call
+                // Smart workspace detection from first absolute path
                 if (!this.initialized) {
-                    await this.initWithWorkspace(this.workspacePath);
+                    let detectedWorkspace = this.workspacePath;
+
+                    // Try to extract workspace from the path argument
+                    const pathArg = (args as any)?.path || (args as any)?.paths?.[0];
+                    if (pathArg && isAbsolute(pathArg)) {
+                        // Heuristic: find common project markers
+                        const markers = ['package.json', 'tsconfig.json', 'pyproject.toml', 'go.mod', 'Cargo.toml', '.git'];
+                        let checkPath = pathArg;
+
+                        while (checkPath && checkPath !== resolve(checkPath, '..')) {
+                            const { dirname } = await import('path');
+                            const parentDir = dirname(checkPath);
+
+                            for (const marker of markers) {
+                                const markerPath = resolve(parentDir, marker);
+                                if (existsSync(markerPath)) {
+                                    detectedWorkspace = parentDir;
+                                    break;
+                                }
+                            }
+
+                            if (detectedWorkspace !== this.workspacePath) break;
+                            checkPath = parentDir;
+                        }
+
+                        // Fallback: use parent of first path if it looks like a src file
+                        if (detectedWorkspace === this.workspacePath && pathArg.includes('src')) {
+                            const srcIndex = pathArg.indexOf('src');
+                            if (srcIndex > 0) {
+                                detectedWorkspace = pathArg.substring(0, srcIndex - 1);
+                            }
+                        }
+                    }
+
+                    await this.initWithWorkspace(detectedWorkspace);
                 }
 
                 switch (name) {
@@ -533,7 +567,7 @@ class AclServer {
                         workspace: this.workspacePath,
                         server: {
                             name: 'acl-mcp',
-                            version: '0.1.1',
+                            version: '0.1.2',
                         },
                         cache: cartographerStats,
                         shadow: {

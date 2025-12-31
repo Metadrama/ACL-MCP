@@ -273,21 +273,73 @@ function parseTypeScript(
         });
     }
 
-    // Parse classes
-    const classRegex = /^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([^{]+))?/gm;
-    while ((match = classRegex.exec(content)) !== null) {
-        const lineNum = content.substring(0, match.index).split('\n').length;
+    // Parse classes with methods and properties
+    const classMatches = [...content.matchAll(/^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([^{]+))?\s*\{/gm)];
+
+    for (const classMatch of classMatches) {
+        const classLineNum = content.substring(0, classMatch.index).split('\n').length;
+        const className = classMatch[1];
+
+        // Find the class body by counting braces
+        const classStartIndex = classMatch.index! + classMatch[0].length;
+        let braceCount = 1;
+        let classEndIndex = classStartIndex;
+
+        for (let i = classStartIndex; i < content.length && braceCount > 0; i++) {
+            if (content[i] === '{') braceCount++;
+            else if (content[i] === '}') braceCount--;
+            classEndIndex = i;
+        }
+
+        const classBody = content.substring(classStartIndex, classEndIndex);
+        const classStartLine = classLineNum;
+
+        const methods: MethodSkeleton[] = [];
+        const properties: string[] = [];
+
+        // Extract methods from class body
+        const methodRegex = /^\s*(public|private|protected)?\s*(static)?\s*(async)?\s*(\w+)\s*\([^)]*\)\s*(?::\s*[^{]+)?\s*\{/gm;
+        let methodMatch;
+
+        while ((methodMatch = methodRegex.exec(classBody)) !== null) {
+            const methodName = methodMatch[4];
+            // Skip constructor for now, it's a special case
+            if (methodName === 'constructor') continue;
+
+            const methodLineInBody = classBody.substring(0, methodMatch.index).split('\n').length;
+
+            methods.push({
+                name: methodName,
+                line: classStartLine + methodLineInBody,
+                visibility: (methodMatch[1] as 'public' | 'private' | 'protected') || 'public',
+                isStatic: !!methodMatch[2],
+                isAsync: !!methodMatch[3],
+                parameters: [],
+            });
+        }
+
+        // Extract properties from class body
+        const propertyRegex = /^\s*(public|private|protected)?\s*(static)?\s*(readonly)?\s*(\w+)\s*[!?]?\s*(?::\s*[^=;]+)?(?:\s*=\s*[^;]+)?;/gm;
+        let propMatch;
+
+        while ((propMatch = propertyRegex.exec(classBody)) !== null) {
+            const propName = propMatch[4];
+            if (propName && !['constructor', 'return', 'if', 'else', 'const', 'let', 'var'].includes(propName)) {
+                properties.push(propName);
+            }
+        }
+
         skeleton.classes.push({
-            name: match[1],
-            line: lineNum,
-            methods: [],
-            properties: [],
-            extends: match[2],
-            implements: match[3]?.split(',').map(s => s.trim()),
+            name: className,
+            line: classLineNum,
+            methods,
+            properties,
+            extends: classMatch[2],
+            implements: classMatch[3]?.split(',').map(s => s.trim()),
         });
     }
 
-    // Parse functions
+    // Parse standalone functions (not in classes)
     const functionRegex = /^(?:export\s+)?(?:async\s+)?function\s+(\w+)/gm;
     while ((match = functionRegex.exec(content)) !== null) {
         const lineNum = content.substring(0, match.index).split('\n').length;
