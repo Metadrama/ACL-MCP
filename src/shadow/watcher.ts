@@ -56,7 +56,7 @@ export class ShadowWatcher extends EventEmitter {
             .on('error', (error: unknown) => this.onError(error as Error));
 
         this.isRunning = true;
-        console.log('[ACL Shadow] Watcher started');
+        // Note: console.log disabled - MCP uses stdio
     }
 
     /**
@@ -68,7 +68,7 @@ export class ShadowWatcher extends EventEmitter {
         await this.watcher.close();
         this.watcher = null;
         this.isRunning = false;
-        console.log('[ACL Shadow] Watcher stopped');
+        // Note: console.log disabled - MCP uses stdio
     }
 
     /**
@@ -116,31 +116,31 @@ export class ShadowWatcher extends EventEmitter {
     }
 
     private onFileAdded(path: string): void {
-        console.log(`[ACL Shadow] File added: ${path}`);
+        // Logging disabled for MCP compatibility
         this.emit('fileChanged', path);
     }
 
     private onFileChanged(path: string): void {
-        console.log(`[ACL Shadow] File changed: ${path}`);
+        // Logging disabled for MCP compatibility
         this.emit('fileChanged', path);
     }
 
     private onFileDeleted(path: string): void {
-        console.log(`[ACL Shadow] File deleted: ${path}`);
+        // Logging disabled for MCP compatibility
         this.emit('fileDeleted', path);
     }
 
     private onDirAdded(path: string): void {
-        console.log(`[ACL Shadow] Directory added: ${path}`);
+        // Logging disabled for MCP compatibility
         this.emit('directoryChanged', path);
     }
 
     private onDirDeleted(path: string): void {
-        console.log(`[ACL Shadow] Directory deleted: ${path}`);
+        // Logging disabled for MCP compatibility
         this.emit('directoryChanged', path);
     }
 
-    private onError(error: Error): void {
-        console.error('[ACL Shadow] Watcher error:', error);
+    private onError(_error: Error): void {
+        // Logging disabled for MCP compatibility
     }
 }

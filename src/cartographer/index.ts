@@ -3,8 +3,9 @@
  * Structural mapping of codebase via AST parsing
  */
 
+import { createHash } from 'crypto';
 import { resolve, relative, join, dirname } from 'path';
-import { readdirSync, statSync, existsSync } from 'fs';
+import { readdirSync, statSync, existsSync, readFileSync } from 'fs';
 import { SkeletonCache } from './cache.js';
 import { parseFile, FileSkeleton, detectLanguage } from './parser.js';
 import { AclConfig } from '../config.js';
@@ -304,9 +305,6 @@ export class Cartographer {
 
     private persistSkeleton(filePath: string, skeleton: FileSkeleton): void {
         // Compute file hash for the skeleton record
-        const { createHash } = require('crypto');
-        const { readFileSync } = require('fs');
-
         let hash: string;
         try {
             const content = readFileSync(filePath);

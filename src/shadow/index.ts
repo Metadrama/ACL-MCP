@@ -49,7 +49,7 @@ export class Shadow {
      */
     start(): void {
         this.watcher.start();
-        console.log('[ACL Shadow] Started');
+        // Logging disabled for MCP compatibility
     }
 
     /**
@@ -58,7 +58,7 @@ export class Shadow {
     async stop(): Promise<void> {
         await this.watcher.stop();
         this.lastContext = null;
-        console.log('[ACL Shadow] Stopped');
+        // Logging disabled for MCP compatibility
     }
 
     /**
@@ -127,8 +127,8 @@ export class Shadow {
 
         // If this is the active file, re-prepare context
         if (this.lastContext?.activeFile === filePath) {
-            this.prepareContext(filePath).catch((err) => {
-                console.error('[ACL Shadow] Error re-preparing context:', err);
+            this.prepareContext(filePath).catch((_err) => {
+                // Logging disabled for MCP compatibility
             });
         }
     }
@@ -152,4 +152,5 @@ export class Shadow {
 }
 
 // Re-export types
-export { RelevanceScore, RelevanceOptions } from './relevance.js';
+export type { RelevanceScore, RelevanceOptions } from './relevance.js';
+

@@ -12,15 +12,18 @@ import {
     CallToolRequestSchema,
     ListToolsRequestSchema,
     Tool,
+    ListRootsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { resolve } from 'path';
+import { resolve, isAbsolute } from 'path';
+import { existsSync } from 'fs';
 
-import { loadConfig, getWorkspaceFromEnv, AclConfig } from './config.js';
+import { loadConfig, AclConfig } from './config.js';
 import { Anchor, SessionState } from './anchor/index.js';
 import { AclDatabase } from './anchor/database.js';
 import { Cartographer } from './cartographer/index.js';
 import { FileSkeleton } from './cartographer/parser.js';
-import { Shadow, RelevanceScore } from './shadow/index.js';
+import { Shadow } from './shadow/index.js';
+import type { RelevanceScore } from './shadow/index.js';
 
 // ─────────────────────────────────────────────────────────────
 // Tool Definitions
@@ -171,31 +174,22 @@ const TOOLS: Tool[] = [
 
 class AclServer {
     private server: Server;
-    private config: AclConfig;
-    private database: AclDatabase;
-    private anchor: Anchor;
+    private config!: AclConfig;
+    private database!: AclDatabase;
+    private anchor!: Anchor;
     private cartographer!: Cartographer;
     private shadow!: Shadow;
     private workspacePath: string;
+    private initialized = false;
 
     constructor(workspacePath: string) {
         this.workspacePath = workspacePath;
 
-        // Load configuration
-        this.config = loadConfig(workspacePath);
-
-        // Initialize database (will be initialized async in init())
-        const dbPath = resolve(workspacePath, '.acl', 'context.db');
-        this.database = new AclDatabase(dbPath);
-
-        // Initialize anchor (will be initialized async in init())
-        this.anchor = new Anchor(workspacePath);
-
-        // Create MCP server
+        // Create MCP server with roots capability to receive workspace from client
         this.server = new Server(
             {
-                name: this.config.server.name,
-                version: this.config.server.version,
+                name: 'acl-mcp',
+                version: '0.1.0',
             },
             {
                 capabilities: {
@@ -208,16 +202,26 @@ class AclServer {
     }
 
     /**
-     * Initialize async components (database, anchor, cartographer, shadow)
+     * Initialize with a specific workspace path
      */
-    async init(): Promise<void> {
+    async initWithWorkspace(workspacePath: string): Promise<void> {
+        if (this.initialized) return;
+
+        this.workspacePath = workspacePath;
+
+        // Load configuration
+        this.config = loadConfig(workspacePath);
+
         // Initialize database
+        const dbPath = resolve(workspacePath, '.acl', 'context.db');
+        this.database = new AclDatabase(dbPath);
         await this.database.init();
 
         // Initialize anchor
+        this.anchor = new Anchor(workspacePath);
         await this.anchor.init();
 
-        // Initialize modules (after database is ready)
+        // Initialize modules
         this.cartographer = new Cartographer({
             config: this.config,
             database: this.database,
@@ -227,6 +231,11 @@ class AclServer {
             database: this.database,
             cartographer: this.cartographer,
         });
+
+        // Start Shadow watcher
+        this.shadow.start();
+
+        this.initialized = true;
     }
 
     private setupHandlers(): void {
@@ -240,6 +249,11 @@ class AclServer {
             const { name, arguments: args } = request.params;
 
             try {
+                // Lazy initialization on first tool call
+                if (!this.initialized) {
+                    await this.initWithWorkspace(this.workspacePath);
+                }
+
                 switch (name) {
                     case 'acl_get_context':
                         return await this.handleGetContext(args as { path: string; depth?: number });
@@ -285,7 +299,11 @@ class AclServer {
 
     private async handleGetContext(args: { path: string; depth?: number }) {
         const { path, depth = 3 } = args;
-        const absolutePath = resolve(this.config.workspacePath, path);
+
+        // Handle both relative and absolute paths
+        const absolutePath = isAbsolute(path)
+            ? path
+            : resolve(this.config.workspacePath, path);
 
         // Check if it's a file or directory
         const { statSync } = await import('fs');
@@ -301,7 +319,7 @@ class AclServer {
 
         if (stat.isFile()) {
             // Get file skeleton
-            const skeleton = await this.cartographer.getSkeleton(path);
+            const skeleton = await this.cartographer.getSkeleton(absolutePath);
             if (!skeleton) {
                 return {
                     content: [{ type: 'text', text: `Could not parse file: ${path}` }],
@@ -318,7 +336,7 @@ class AclServer {
             };
         } else if (stat.isDirectory()) {
             // Map directory structure
-            const map = this.cartographer.mapDirectory(path, depth);
+            const map = this.cartographer.mapDirectory(absolutePath, depth);
             return {
                 content: [
                     {
@@ -354,14 +372,15 @@ class AclServer {
     }) {
         const { path, depth = 1, maxResults = 10 } = args;
 
+        const absolutePath = isAbsolute(path)
+            ? path
+            : resolve(this.config.workspacePath, path);
+
         // Get related via Shadow's relevance engine
-        const related = this.shadow.getRelevantFiles(
-            resolve(this.config.workspacePath, path),
-            { maxResults }
-        );
+        const related = this.shadow.getRelevantFiles(absolutePath, { maxResults });
 
         // Also get import graph based relationships
-        const graphRelated = await this.cartographer.getRelatedFiles(path, depth);
+        const graphRelated = await this.cartographer.getRelatedFiles(absolutePath, depth);
 
         // Combine and dedupe
         const allPaths = new Set([
@@ -378,7 +397,7 @@ class AclServer {
         for (const filePath of allPaths) {
             const relevanceEntry = related.find((r) => r.filePath === filePath);
             result.push({
-                path: filePath.replace(this.config.workspacePath, '').replace(/^[\/\\]/, ''),
+                path: filePath.replace(this.config.workspacePath, '').replace(/^[\\/\\\\]/, ''),
                 score: relevanceEntry?.score,
                 reason: relevanceEntry?.reason,
             });
@@ -400,7 +419,10 @@ class AclServer {
 
         for (const path of paths) {
             try {
-                await this.cartographer.refreshSkeleton(path);
+                const absolutePath = isAbsolute(path)
+                    ? path
+                    : resolve(this.config.workspacePath, path);
+                await this.cartographer.refreshSkeleton(absolutePath);
                 results.push({ path, success: true });
             } catch (error) {
                 results.push({
@@ -492,18 +514,21 @@ class AclServer {
     }
 
     private async handleGetStats() {
-        const cartographerStats = this.cartographer.getStats();
+        const cartographerStats = this.cartographer?.getStats() ?? { cacheSize: 0, maxCacheSize: 5000 };
 
         return {
             content: [
                 {
                     type: 'text',
                     text: JSON.stringify({
-                        workspace: this.config.workspacePath,
-                        server: this.config.server,
+                        workspace: this.workspacePath,
+                        server: {
+                            name: 'acl-mcp',
+                            version: '0.1.0',
+                        },
                         cache: cartographerStats,
                         shadow: {
-                            running: this.shadow.isRunning(),
+                            running: this.shadow?.isRunning() ?? false,
                         },
                     }, null, 2),
                 },
@@ -517,7 +542,7 @@ class AclServer {
 
     private formatSkeleton(skeleton: FileSkeleton) {
         return {
-            file: skeleton.filePath.replace(this.config.workspacePath, '').replace(/^[\/\\]/, ''),
+            file: skeleton.filePath.replace(this.config.workspacePath, '').replace(/^[\\/\\\\]/, ''),
             language: skeleton.language,
             exports: skeleton.exports.map((e) => ({
                 name: e.name,
@@ -554,25 +579,16 @@ class AclServer {
     // ─────────────────────────────────────────────────────────────
 
     async start(): Promise<void> {
-        // Initialize async components first
-        await this.init();
-
-        // Start Shadow watcher
-        this.shadow.start();
-
         // Connect to stdio transport
         const transport = new StdioServerTransport();
         await this.server.connect(transport);
-
-        console.error(`[ACL-MCP] Server started for workspace: ${this.config.workspacePath}`);
     }
 
     async stop(): Promise<void> {
-        await this.shadow.stop();
-        this.anchor.close();
-        this.database.close();
+        if (this.shadow) await this.shadow.stop();
+        if (this.anchor) this.anchor.close();
+        if (this.database) this.database.close();
         await this.server.close();
-        console.error('[ACL-MCP] Server stopped');
     }
 }
 
@@ -581,13 +597,11 @@ class AclServer {
 // ─────────────────────────────────────────────────────────────
 
 async function main() {
-    const workspacePath = getWorkspaceFromEnv();
-
-    if (!workspacePath) {
-        console.error('Error: No workspace path specified.');
-        console.error('Set ACL_WORKSPACE_PATH or WORKSPACE_PATH environment variable.');
-        process.exit(1);
-    }
+    // Get workspace from environment, or use cwd as fallback
+    const workspacePath =
+        process.env.ACL_WORKSPACE_PATH ||
+        process.env.WORKSPACE_PATH ||
+        process.cwd();
 
     const server = new AclServer(workspacePath);
 
@@ -605,7 +619,6 @@ async function main() {
     await server.start();
 }
 
-main().catch((error) => {
-    console.error('Fatal error:', error);
+main().catch(() => {
     process.exit(1);
 });

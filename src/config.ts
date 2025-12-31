@@ -87,7 +87,7 @@ export function loadConfig(workspacePath: string): AclConfig {
             const content = readFileSync(configPath, 'utf-8');
             userConfig = JSON.parse(content);
         } catch (error) {
-            console.warn(`[ACL] Failed to parse config at ${configPath}:`, error);
+            // Logging disabled for MCP compatibility
         }
     }
 
